@@ -1,4 +1,6 @@
 
+// Cloning the github branch using setup in UI with clean before checkout
+
 pipeline{
     agent any
     environment {
@@ -15,16 +17,6 @@ pipeline{
     }
     
     stages{
-        stage('Git Pull'){
-            steps{
-                checkout(
-                   [$class: 'GitSCM', 
-                    branches: [[name: '*/main']], 
-                    userRemoteConfigs: [[credentialsId: 'Git_Credentials', url: 'https://github.com/sunkaravineeth/CI_Assignment.git']]
-                ])
-            }
-        }
-        
         // This stage runs every time
         stage(' Is the run required?'){
             steps{
