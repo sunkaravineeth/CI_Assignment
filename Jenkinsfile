@@ -1,53 +1,40 @@
-def staticStageResult = false
-def response, staticCheck, qaCheck, unitCheck
-def lengthOfArray=0
-def holidayCheck = true
 
 pipeline{
-    
     agent any
-    
-    
     environment {
-        
         currentDate = sh ( script: "date +'%Y-%m-%d'", returnStdout: true ).trim()
         currentYear = sh ( script: "date +'%Y'", returnStdout: true ).trim()
+        staticStageResult = false
+        holidayCheck = true
     }
     
     parameters{
-        checkboxParameter( name: 'checkbox', format: 'YAML', pipelineSubmitContent: "CheckboxParameter: \n  - key: Static_Check\n    value: Status_Check\n  - key: QA\n    value: QA\n  - key: Unit_Test\n    value: Unit_Test\n")
+        checkboxParameter( name: 'checkbox', format: 'YAML', pipelineSubmitContent: "CheckboxParameter: \n  - key: Static_Check\n    value: Static_Check\n  - key: QA\n    value: QA\n  - key: Unit_Test\n    value: Unit_Test\n")
         string( name: 'Success_Email', trim: true)
         string( name: 'Failure_Email', trim: true)
     }
     
     stages{
-        
         stage('Git Pull'){
             steps{
                 checkout(
                    [$class: 'GitSCM', 
-                    branches: [[name: '*/master']], 
-                    userRemoteConfigs: [[credentialsId: 'Git_Credentials', url: 'https://github.com/sunkaravineeth/game-of-life']]
+                    branches: [[name: '*/main']], 
+                    userRemoteConfigs: [[credentialsId: 'Git_Credentials', url: 'https://github.com/sunkaravineeth/CI_Assignment.git']]
                 ])
             }
         }
         
+        // This stage runs every time
         stage(' Is the run required?'){
             steps{
                 script{
-                    sh 'rm -rf *'
-                    staticCheck = params.checkbox.indexOf('Status_Check')
-                    qaCheck = params.checkbox.indexOf('QA')
-                    unitCheck = params.checkbox.indexOf('Unit_Test')
-                    
                     response = httpRequest "https://calendarific.com/api/v2/holidays?api_key=90e19de04681bc27e9492b478df436f43aed8c4c&country=IN&year=${currentYear}"
-                   
-                    def parser = new groovy.json.JsonSlurper()
-                    def json = parser.parseText(response.content)
-                    def json1 = json.response.holidays
-                    lengthOfArray = json1.results.size()
+                    def jsonObj = new groovy.json.JsonSlurperClassic().parseText(response.content)
+                    def json = jsonObj.response.holidays
+                    def lengthOfArray = json.results.size()
                     for (int i=0; i< lengthOfArray; ++i) {
-                         if (json1[i].date.iso == '$currentDate}'){
+                         if (json[i].date.iso == '${currentDate}'){
                              holidayCheck = false
                          }
                     }
@@ -57,6 +44,7 @@ pipeline{
             
         }
         
+        // This stage runs only if current day is not holiday
         stage('Build'){
             when{
                 expression{
@@ -66,18 +54,13 @@ pipeline{
             
             steps{
                 script{
-                    def json2 = parseString(response.content)
-                    writeJSON file: 'data.json', json: json2, pretty:2
-                    
-                    dir ('builds') {
-                        
-                        for(int i=0; i< lengthOfArray; ++i){
-                            writeFile file: json2.response.holidays[i].name , text: json2.response.holidays[i].description
+                    def jsonObj = readJSON file: 'build.json'
+                    dir ('builds'){
+                        jsonObj.each { key, value ->
+                            writeFile (file: "${value.Name}.txt" , text: "${value.Content}")
                         }
                     }
-                      
-                    sh "zip -r builds.zip builds"
-
+                    zip zipFile: 'builds.zip' , dir: 'builds'
                 }
             }
         }
@@ -93,40 +76,46 @@ pipeline{
                 
                 stage('Checks'){
                     stages{
-                        stage(' Static check'){
+                        stage('Static_Check'){
+                            // This stage runs only if current day is not holiday and Static_Check is enabled
                             when{
                                 expression{
-                                    return staticCheck != -1 
+                                    return params.checkbox.indexOf('Static_Check') != -1 
                                 }
                             }
                             steps{
                                 script{
-                                    statusStageResult = true
+                                    
+                                    folderCreation("${env.STAGE_NAME}")
+                                    staticStageResult = true
                                 }
                             }
                         }
+                        // This stage runs only if current day is not holiday , QA is enabled and Static_check stage passed
                         stage('QA'){
                             when{
                                 expression{
-                                    return qaCheck != -1 && staticStageResult
+                                    return params.checkbox.indexOf('QA') != -1 && staticStageResult == true
                                 }
                             }
                             steps{
                                 script{
+                                    folderCreation("${env.STAGE_NAME}")
                                 }
                             }
                         }
                     }
                 }
-                
-                stage('Unit Test'){
+                // This stage runs only if current day is not holiday and Unit_Test is enabled
+                stage('Unit_Test'){
                     when{
                         expression{
-                            return unitCheck != -1 
+                            return params.checkbox.indexOf('Unit_Test') != -1 
                         }
                     }
                     steps{
                         script{
+                            folderCreation("${env.STAGE_NAME}")
                         }
                     }
                 }
@@ -137,17 +126,19 @@ pipeline{
         stage('Summary'){
             steps{
                 script{
-                    println "Stages executed based on check boxes --> "+params.checkbox
-                    
+                    String [] str = params.checkbox.split(',')
+                    for (String values : str)
+                        println(values +" stage is executed and the "+values+".txt file is copied")
                 }
             }
         }
     }
     
     post{
-        
         success{
             script{
+                echo params.Success_Email
+                print params.Failure_Email
                 emailext(
                     to: params.Success_Email,
                     subject: "${env.JOB_NAME} - ${env.BUILD_NUMBER} is ${env.BUILD_STATUS}",
@@ -156,7 +147,6 @@ pipeline{
                 )
             }
         }
-        
         failure{
             script{
                 emailext(
@@ -168,13 +158,13 @@ pipeline{
             }
         }
     }
-    
 }
 
-
-
-def parseString(def json){
-    new groovy.json.JsonSlurperClassic().parseText(json)
+// function to create folder and copy respective files to that folder
+def folderCreation(String str){
+    fileOperations([folderCreateOperation(
+        folderPath: "${str}"
+    )])
+    // fileCopyOperation can also be used 
+    sh "cp -r builds/$str.* $str"
 }
-
-
