@@ -1,0 +1,18 @@
+{
+	"Stage1":{
+		"Name":"Build", 
+		"Content":"This stage will do the build and create the artifacts",
+	},
+	"Stage2":{
+		"Name":"Static_Check", 
+		"Content":"This stage will do the check foe the code qulaity whether it followd the coding standard or not",
+	},	
+	"Stage3":{
+		"Name":"QA", 
+		"Content":"This stage will do the Quality analysis for the code",
+	},
+	"Stage4":{
+		"Name":"Unit_Test", 
+		"Content":"This stage will do the Unit test for the code whter the basic functionality is working or not",
+	}
+}
